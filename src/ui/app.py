@@ -64,7 +64,8 @@ class MusicDownloaderApp:
         self.original_tracks = []  # 保存原始顺序
         self.downloaded_files = set()
         self.download_thread = None
-        
+        self.current_playlist_name = "Unknown Playlist"  # 当前歌单名称
+
         # 选择相关
         self.selected_tracks = set()
         self.track_controls = {}
@@ -148,6 +149,8 @@ class MusicDownloaderApp:
         )
         
         self.lyrics_checkbox = ft.Checkbox(label="下载歌词", value=False)
+        self.group_by_album = ft.Checkbox(label="按专辑分组", value=False)
+        self.use_playlist_folder = ft.Checkbox(label="创建歌单文件夹", value=True)
         self.dir_button = ft.ElevatedButton("选择下载目录", on_click=self.select_directory)
         self.dir_text = ft.Text(f"下载目录: {self.download_dir}", size=12)
         
@@ -190,6 +193,8 @@ class MusicDownloaderApp:
                 self.naming_dropdown,
                 self.sort_dropdown,
                 self.lyrics_checkbox, 
+                self.group_by_album,
+                self.use_playlist_folder,
                 self.dir_button
             ], alignment=ft.MainAxisAlignment.CENTER, spacing=10),
             ft.Row([self.dir_text, self.login_status, self.login_button], 
@@ -377,6 +382,7 @@ class MusicDownloaderApp:
                 return
             
             self.original_tracks = playlist_info['playlist']['tracks']
+            self.current_playlist_name = playlist_info['playlist']['name']
             self._scan_downloaded()
             
             # 由于是在线程中，UI更新不需要 page.run_task，直接修改后调用 page.update 即可
@@ -560,26 +566,37 @@ class MusicDownloaderApp:
         
         self.download_thread = threading.Thread(
             target=self._download_playlist_thread,
-            args=(self.quality_dropdown.value, self.lyrics_checkbox.value),
+            args=(self.quality_dropdown.value, self.lyrics_checkbox.value, 
+                  self.group_by_album.value, self.use_playlist_folder.value),
             daemon=True
         )
         self.download_thread.start()
     
-    def _download_playlist_thread(self, quality, download_lyrics):
+    def _download_playlist_thread(self, quality, download_lyrics, group_by_album, use_playlist_folder):
         """下载歌单线程"""
         cookies = self.cookie_manager.parse_cookie()
         naming_format = self.naming_dropdown.value
         
         try:
-            playlist_name = "DownList_Songs"
-            # 尝试获取歌单名称
-            for track in self.tracks:
-                if track.get('album'):
-                    playlist_name = sanitize_filename(track['album'])
-                    break
-            
-            download_dir = os.path.join(self.download_dir, playlist_name)
-            os.makedirs(download_dir, exist_ok=True)
+            # 确定基础下载目录
+            if use_playlist_folder:
+                # 使用歌单名作为子目录
+                playlist_folder_name = sanitize_filename(self.current_playlist_name)
+                # 如果获取不到歌单名，尝试从歌曲信息中猜测（旧逻辑备用）
+                if not playlist_folder_name or playlist_folder_name == "Unknown Playlist":
+                    for track in self.tracks:
+                        if track.get('album'):
+                            playlist_folder_name = sanitize_filename(track['album'])
+                            break
+                    if not playlist_folder_name:
+                        playlist_folder_name = "DownList_Songs"
+                
+                base_download_dir = os.path.join(self.download_dir, playlist_folder_name)
+            else:
+                # 直接使用选择的下载目录
+                base_download_dir = self.download_dir
+
+            os.makedirs(base_download_dir, exist_ok=True)
             
             selected_tracks = [t for t in self.tracks if t['id'] in self.selected_tracks]
             total_selected = len(selected_tracks)
@@ -605,8 +622,18 @@ class MusicDownloaderApp:
                 
                 self._update_track_status(track['id'], '下载中', 0, ft.Colors.BLUE)
                 
+                # 确定单曲下载目录（处理按专辑分组）
+                if group_by_album:
+                    album_name = sanitize_filename(track['album'])
+                    if not album_name:
+                        album_name = "Unknown Album"
+                    target_dir = os.path.join(base_download_dir, album_name)
+                    os.makedirs(target_dir, exist_ok=True)
+                else:
+                    target_dir = base_download_dir
+
                 try:
-                    self._download_song(track, quality, download_lyrics, download_dir, cookies, naming_format)
+                    self._download_song(track, quality, download_lyrics, target_dir, cookies, naming_format)
                     completed_count += 1
                     self._update_track_status(track['id'], '已完成', 1.0, ft.Colors.GREEN)
                 except Exception as ex:
