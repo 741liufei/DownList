@@ -36,7 +36,7 @@
 
 ---
 
-## 🚀 v2.1 新功能
+## 🚀 v2.1.2 新功能
 
 ### 🏗️ 代码分层重构
 - 项目结构优化，按功能拆分为独立模块
@@ -47,7 +47,7 @@
 - `src/utils` - 工具函数
 
 ### 🔐 网易云网站登录
-- 支持通过浏览器直接登录网易云获取 Cookie
+- 支持通过浏览器（Edge/Chrome）直接登录网易云获取 Cookie (完美兼容 Windows & macOS)
 - 无需手动复制 Cookie，登录成功后自动保存
 - 保留原有 `cookie.txt` 方式，优先读取本地文件
 - 支持「重新登录」切换账号
@@ -86,18 +86,6 @@
 1. 一台正常的电脑，安装了 Python 3.8+
 2. 网易云音乐账号（建议用有黑胶VIP的，没有VIP会有歌曲下载不了）
 
-### 系统兼容性
-
-本项目支持以下操作系统：
-- ✅ Windows
-- ✅ macOS (已兼容)
-- ✅ Linux
-
-**macOS 用户注意事项：**
-- 默认下载目录为 `~/Music`
-- 首次运行浏览器登录时，可能需要在系统设置中授予 Chrome 权限
-- 如果遇到 ChromeDriver 问题，请确保已安装 Chrome 浏览器
-
 
 
 ## 下载安装
@@ -106,12 +94,6 @@
 
 **Windows 用户：**
 到 Release 或 [蓝奏云（密码:g9dh）](https://wwbnp.lanzoum.com/iksOz3dfr06f) 中下载，解压后直接运行即可。
-
-**macOS 用户：**
-下载 `DownList-v2.1.1-macOS.dmg`，双击打开后将应用拖到「应用程序」文件夹。
-- 📦 DMG 大小：约 36 MB
-- 🎯 支持 Intel 和 Apple Silicon (M1/M2/M3)
-- 📖 详细说明请查看 [发布说明](RELEASE_NOTES.md)
 
 ### 方式二：源码运行
 
@@ -308,7 +290,7 @@ DownList/
 
 查看 [CHANGELOG.md](CHANGELOG.md) 了解详细的版本更新历史。
 
-最新版本 **v2.1.1** 已完全支持 macOS 系统！
+最新版本 **v2.1.2** 已完全支持 Windows & macOS 系统！
 
 ---
 
