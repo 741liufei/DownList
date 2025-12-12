@@ -347,29 +347,46 @@ class MusicDownloaderApp:
             return
         
         try:
-            cookies = self.cookie_manager.parse_cookie()
+            self.cookie_manager.read_cookie()
         except FileNotFoundError:
             self._show_snackbar("请先登录获取 Cookie")
             return
         
+        # 更新 UI 为加载状态
+        self.parse_button.text = "解析中..."
+        self.parse_button.disabled = True
+        self.url_input.disabled = True
+        self.page.update()
+        
+        threading.Thread(target=self._parse_playlist_thread, args=(url,), daemon=True).start()
+
+    def _parse_playlist_thread(self, url):
+        """后台解析歌单线程"""
         try:
+            cookies = self.cookie_manager.parse_cookie()
             playlist_id = extract_playlist_id(url)
+            
+            logging.info(f"开始解析歌单 ID: {playlist_id}")
+            
             playlist_info = playlist_detail(playlist_id, cookies)
             
             if playlist_info['status'] != 200:
                 self._show_snackbar(f"歌单解析失败：{playlist_info['msg']}")
                 logging.error(f"歌单解析失败：{playlist_info['msg']}")
+                self._reset_parse_button()
                 return
             
             self.original_tracks = playlist_info['playlist']['tracks']
             self._scan_downloaded()
+            
+            # 由于是在线程中，UI更新不需要 page.run_task，直接修改后调用 page.update 即可
+            # (Flet 的 page.update 是线程安全的)
             self._refresh_track_list()
             
             self.total_progress_text.value = f"总进度: 0/{len(self.selected_tracks)}"
             self.download_button.disabled = False
             self.select_all_button.disabled = False
             self.deselect_all_button.disabled = False
-            self.page.update()
             
             logging.info(f"成功解析歌单：{playlist_info['playlist']['name']}，共 {len(self.original_tracks)} 首歌曲")
             self._show_snackbar(f"成功解析歌单，共 {len(self.original_tracks)} 首歌曲")
@@ -377,6 +394,15 @@ class MusicDownloaderApp:
         except Exception as ex:
             self._show_snackbar(f"解析失败：{str(ex)}")
             logging.error(f"解析歌单失败：{str(ex)}")
+        finally:
+            self._reset_parse_button()
+    
+    def _reset_parse_button(self):
+        """重置解析按钮状态"""
+        self.parse_button.text = "解析歌单"
+        self.parse_button.disabled = False
+        self.url_input.disabled = False
+        self.page.update()
     
     def _build_track_list_ui(self):
         """构建歌曲列表 UI"""

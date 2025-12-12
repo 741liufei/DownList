@@ -87,8 +87,8 @@ class CookieManager:
             ]
         else:
             browsers_to_try = [
-                ('edge', 'Microsoft Edge'),
-                ('chrome', 'Google Chrome')
+                ('chrome', 'Google Chrome'),
+                ('edge', 'Microsoft Edge')
             ]
         
         for browser_type, browser_name in browsers_to_try:
