@@ -21,6 +21,20 @@ import logging
 logging.basicConfig(filename='download.log', level=logging.INFO, 
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
+# 音质映射：API 参数 -> 中文显示名称
+QUALITY_MAP = {
+    'standard': '标准 (128kbps)',
+    'exhigh': '极高 (320kbps)',
+    'lossless': '无损 (SQ)',
+    'hires': '高清臻音 (Hi-Res)',
+    'sky': '沉浸环绕声 (Surround)',
+    'jyeffect': '高清臻音 (Spatial Audio)',
+    'jymaster': '超清母带 (Master)',
+}
+
+# 反向映射：中文名称 -> API 参数
+QUALITY_MAP_REVERSE = {v: k for k, v in QUALITY_MAP.items()}
+
 # Cookie 管理
 class CookieManager:
     def __init__(self, cookie_file='cookie.txt'):
@@ -140,25 +154,31 @@ class MusicDownloaderApp:
     def __init__(self, page: ft.Page):
         self.page = page
         self.page.title = "网易云音乐下载器"
-        self.page.window_width = 800
-        self.page.window_height = 600
+        self.page.window.width = 900
+        self.page.window.height = 700
         self.cookie_manager = CookieManager()
         self.download_dir = "C:\\"
         self.tracks = []
         self.current_song = None
+        self.current_track_id = None  # 当前下载歌曲的ID
         self.total_size = 0
         self.downloaded_size = 0
         self.start_time = 0
         self.is_paused = False
+        self.is_cancelled = False  # 新增取消标志
         self.download_thread = None
+        
+        # 选择相关
+        self.selected_tracks = set()  # 存储选中的歌曲 ID
+        self.track_controls = {}  # 存储歌曲控件引用 {track_id: {'checkbox': ..., 'progress_bar': ..., 'status_text': ...}}
 
         # UI 组件
         self.url_input = ft.TextField(label="歌单 URL", width=500)
         self.quality_dropdown = ft.Dropdown(
             label="音质选择",
-            options=[ft.dropdown.Option(q) for q in ['standard', 'exhigh', 'lossless', 'hires', 'sky', 'jyeffect', 'jymaster']],
+            options=[ft.dropdown.Option(text=QUALITY_MAP[q], key=q) for q in QUALITY_MAP.keys()],
             value="standard",
-            width=200
+            width=280
         )
         self.lyrics_checkbox = ft.Checkbox(label="下载歌词", value=False)
         self.dir_button = ft.ElevatedButton("选择下载目录", on_click=self.select_directory)
@@ -168,35 +188,47 @@ class MusicDownloaderApp:
         self.pause_button = ft.ElevatedButton("暂停", on_click=self.pause_download, disabled=True)
         self.resume_button = ft.ElevatedButton("继续", on_click=self.resume_download, disabled=True)
         self.cancel_button = ft.ElevatedButton("取消", on_click=self.cancel_download, disabled=True)
+        
+        # 选择按钮
+        self.select_all_button = ft.ElevatedButton("全选", on_click=self.select_all_tracks, disabled=True)
+        self.deselect_all_button = ft.ElevatedButton("取消全选", on_click=self.deselect_all_tracks, disabled=True)
+        self.selected_count_text = ft.Text("已选择: 0 首", size=14, weight=ft.FontWeight.BOLD)
+        
         self.total_progress = ft.ProgressBar(
-            width=1500,
+            width=800,
             value=0,
-            color=ft.colors.INDIGO,
-            bgcolor=None,
+            color=ft.Colors.INDIGO,
+            bgcolor=ft.Colors.GREY_300,
             bar_height=20
         )
         self.total_progress_text = ft.Text("总进度: 0/0")
         self.file_progress = ft.ProgressBar(
-            width=1500,
+            width=800,
             value=0,
-            color=ft.colors.INDIGO,
-            bgcolor=None,
-            bar_height=20
+            color=ft.Colors.BLUE,
+            bgcolor=ft.Colors.GREY_300,
+            bar_height=15
         )
         self.file_progress_text = ft.Text("文件进度: 0%")
         self.speed_text = ft.Text("下载速度: 0 KB/s")
-        self.song_list = ft.ListView(expand=True, spacing=10, padding=10)
+        self.song_list = ft.ListView(expand=True, spacing=5, padding=10)
 
         # 布局
         self.page.add(
             ft.Row([self.url_input, self.parse_button], alignment=ft.MainAxisAlignment.CENTER),
             ft.Row([self.quality_dropdown, self.lyrics_checkbox, self.dir_button], alignment=ft.MainAxisAlignment.CENTER),
             self.dir_text,
+            ft.Divider(),
+            ft.Row([
+                self.select_all_button, 
+                self.deselect_all_button, 
+                self.selected_count_text
+            ], alignment=ft.MainAxisAlignment.CENTER, spacing=20),
             ft.Row([self.download_button, self.pause_button, self.resume_button, self.cancel_button], alignment=ft.MainAxisAlignment.CENTER),
-            ft.Column([self.total_progress_text, self.total_progress]),
-            ft.Column([self.file_progress_text, self.file_progress]),
+            ft.Column([self.total_progress_text, self.total_progress], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            ft.Column([self.file_progress_text, self.file_progress], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             self.speed_text,
-            ft.Text("歌曲预览:"),
+            ft.Text("歌曲列表:", size=16, weight=ft.FontWeight.BOLD),
             self.song_list
         )
 
@@ -233,17 +265,63 @@ class MusicDownloaderApp:
 
             self.tracks = playlist_info['playlist']['tracks']
             self.song_list.controls.clear()
-            for track in self.tracks:
-                self.song_list.controls.append(
-                    ft.Row([
-                        ft.Image(src=track['picUrl'], width=50, height=50, fit=ft.ImageFit.COVER),
-                        ft.Text(f"{track['name']} - {track['artists']} ({track['album']})")
-                    ])
+            self.selected_tracks.clear()
+            self.track_controls.clear()
+            
+            for index, track in enumerate(self.tracks):
+                track_id = track['id']
+                
+                # 创建复选框
+                checkbox = ft.Checkbox(
+                    value=True,  # 默认全选
+                    on_change=lambda e, tid=track_id: self.on_track_select_change(e, tid)
                 )
-            self.total_progress_text.value = f"总进度: 0/{len(self.tracks)}"
+                self.selected_tracks.add(track_id)  # 默认选中
+                
+                # 创建进度条和状态文本
+                progress_bar = ft.ProgressBar(width=120, value=0, visible=False, bar_height=8)
+                status_text = ft.Text("待下载", size=11, color=ft.Colors.GREY_600, width=60)
+                
+                # 存储控件引用
+                self.track_controls[track_id] = {
+                    'checkbox': checkbox,
+                    'progress_bar': progress_bar,
+                    'status_text': status_text
+                }
+                
+                # 创建歌曲项
+                song_item = ft.Container(
+                    content=ft.Row([
+                        checkbox,
+                        ft.Text(f"{index + 1}.", size=12, width=30),
+                        ft.Image(src=track['picUrl'], width=45, height=45, fit=ft.ImageFit.COVER, border_radius=5) if track['picUrl'] else ft.Container(width=45, height=45, bgcolor=ft.Colors.GREY_300),
+                        ft.Column([
+                            ft.Text(track['name'], size=13, weight=ft.FontWeight.W_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, width=300),
+                            ft.Text(f"{track['artists']} · {track['album']}", size=11, color=ft.Colors.GREY_600, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, width=300),
+                        ], spacing=2, expand=True),
+                        ft.Column([
+                            status_text,
+                            progress_bar,
+                        ], spacing=2, width=130, horizontal_alignment=ft.CrossAxisAlignment.END),
+                    ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    padding=ft.padding.symmetric(horizontal=10, vertical=5),
+                    border_radius=8,
+                    bgcolor=ft.Colors.GREY_100 if index % 2 == 0 else ft.Colors.WHITE,
+                )
+                
+                self.song_list.controls.append(song_item)
+            
+            self.update_selected_count()
+            self.total_progress_text.value = f"总进度: 0/{len(self.selected_tracks)}"
             self.download_button.disabled = False
+            self.select_all_button.disabled = False
+            self.deselect_all_button.disabled = False
             self.page.update()
             logging.info(f"成功解析歌单：{playlist_info['playlist']['name']}，共 {len(self.tracks)} 首歌曲")
+            
+            self.page.snack_bar = ft.SnackBar(ft.Text(f"成功解析歌单，共 {len(self.tracks)} 首歌曲"))
+            self.page.snack_bar.open = True
+            self.page.update()
 
         except Exception as e:
             self.page.snack_bar = ft.SnackBar(ft.Text(f"解析失败：{str(e)}"))
@@ -257,9 +335,64 @@ class MusicDownloaderApp:
             return url[index:].split('&')[0]
         return url
 
+    def on_track_select_change(self, e, track_id):
+        """处理单曲选择变化"""
+        if e.control.value:
+            self.selected_tracks.add(track_id)
+        else:
+            self.selected_tracks.discard(track_id)
+        self.update_selected_count()
+
+    def select_all_tracks(self, e):
+        """全选所有歌曲"""
+        for track_id, controls in self.track_controls.items():
+            controls['checkbox'].value = True
+            self.selected_tracks.add(track_id)
+        self.update_selected_count()
+        self.page.update()
+
+    def deselect_all_tracks(self, e):
+        """取消全选"""
+        for track_id, controls in self.track_controls.items():
+            controls['checkbox'].value = False
+        self.selected_tracks.clear()
+        self.update_selected_count()
+        self.page.update()
+
+    def update_selected_count(self):
+        """更新选中歌曲数量显示"""
+        count = len(self.selected_tracks)
+        self.selected_count_text.value = f"已选择: {count} 首"
+        self.total_progress_text.value = f"总进度: 0/{count}"
+        self.download_button.disabled = count == 0
+        self.page.update()
+
+    def update_track_status(self, track_id, status, progress, color):
+        """更新指定歌曲的下载状态和进度"""
+        if track_id in self.track_controls:
+            controls = self.track_controls[track_id]
+            controls['status_text'].value = status
+            controls['status_text'].color = color
+            controls['progress_bar'].value = progress
+            controls['progress_bar'].visible = progress > 0 or status == "下载中"
+            self.page.update()
+
+    def update_track_progress(self, track_id, progress):
+        """更新指定歌曲的下载进度"""
+        if track_id in self.track_controls:
+            controls = self.track_controls[track_id]
+            controls['progress_bar'].value = progress
+            controls['progress_bar'].visible = True
+
     def start_download(self, e):
         if not self.tracks:
             self.page.snack_bar = ft.SnackBar(ft.Text("请先解析歌单"))
+            self.page.snack_bar.open = True
+            self.page.update()
+            return
+        
+        if len(self.selected_tracks) == 0:
+            self.page.snack_bar = ft.SnackBar(ft.Text("请至少选择一首歌曲"))
             self.page.snack_bar.open = True
             self.page.update()
             return
@@ -273,13 +406,20 @@ class MusicDownloaderApp:
             logging.error(str(e))
             return
 
+        # 重置所有选中歌曲的状态
+        for track_id in self.selected_tracks:
+            self.update_track_status(track_id, "待下载", 0, ft.Colors.GREY_600)
+
         self.download_button.disabled = True
+        self.select_all_button.disabled = True
+        self.deselect_all_button.disabled = True
         self.pause_button.disabled = False
         self.cancel_button.disabled = False
         self.is_paused = False
+        self.is_cancelled = False
         self.download_thread = threading.Thread(target=self.download_playlist, args=(
             self.url_input.value.strip(), 
-            self.quality_dropdown.value, 
+            self.quality_dropdown.value,  # 现在直接使用 key 值
             self.lyrics_checkbox.value
         ), daemon=True)
         self.download_thread.start()
@@ -288,28 +428,36 @@ class MusicDownloaderApp:
         self.is_paused = True
         self.pause_button.disabled = True
         self.resume_button.disabled = False
+        self.page.update()
         logging.info("下载已暂停")
 
     def resume_download(self, e):
         self.is_paused = False
         self.pause_button.disabled = False
         self.resume_button.disabled = True
+        self.page.update()
         logging.info("下载已继续")
 
     def cancel_download(self, e):
-        self.is_paused = True
+        self.is_cancelled = True
+        self.is_paused = False
         self.download_thread = None
-        self.tracks = []
         self.total_progress.value = 0
         self.file_progress.value = 0
         self.total_progress_text.value = "总进度: 0/0"
         self.file_progress_text.value = "文件进度: 0%"
         self.speed_text.value = "下载速度: 0 KB/s"
-        self.song_list.controls.clear()
-        self.download_button.disabled = True
+        self.download_button.disabled = False
+        self.select_all_button.disabled = False
+        self.deselect_all_button.disabled = False
         self.pause_button.disabled = True
         self.resume_button.disabled = True
         self.cancel_button.disabled = True
+        
+        # 重置所有选中歌曲状态
+        for track_id in self.selected_tracks:
+            self.update_track_status(track_id, "已取消", 0, ft.Colors.ORANGE)
+        
         self.page.update()
         logging.info("下载已取消")
 
@@ -329,38 +477,63 @@ class MusicDownloaderApp:
             download_dir = os.path.join(self.download_dir, playlist_name)
             os.makedirs(download_dir, exist_ok=True)
 
+            # 筛选选中的歌曲
+            selected_tracks = [t for t in self.tracks if t['id'] in self.selected_tracks]
+            total_selected = len(selected_tracks)
+
             self.total_progress.value = 0
-            self.total_progress_text.value = f"总进度: 0/{len(self.tracks)}"
+            self.total_progress_text.value = f"总进度: 0/{total_selected}"
             self.page.update()
 
-            for i, track in enumerate(self.tracks):
+            completed_count = 0
+            for i, track in enumerate(selected_tracks):
+                if self.is_cancelled:
+                    break
+                    
                 if self.is_paused:
-                    while self.is_paused:
+                    while self.is_paused and not self.is_cancelled:
                         time.sleep(0.1)
-                        self.page.update()
-                    if not self.download_thread:
+                    if self.is_cancelled:
                         break
 
                 self.current_song = track['name']
-                self.download_song(track, quality, download_lyrics, download_dir)
-                self.total_progress.value = (i + 1) / len(self.tracks)
-                self.total_progress_text.value = f"总进度: {i + 1}/{len(self.tracks)}"
+                self.current_track_id = track['id']
+                
+                # 更新歌曲状态为"下载中"
+                self.update_track_status(track['id'], '下载中', 0, ft.Colors.BLUE)
+                
+                try:
+                    self.download_song(track, quality, download_lyrics, download_dir)
+                    completed_count += 1
+                    # 更新歌曲状态为"已完成"
+                    self.update_track_status(track['id'], '已完成', 1.0, ft.Colors.GREEN)
+                except Exception as ex:
+                    # 更新歌曲状态为"失败"
+                    self.update_track_status(track['id'], '失败', 0, ft.Colors.RED)
+                    logging.error(f"下载失败: {track['name']} - {str(ex)}")
+                
+                self.total_progress.value = (i + 1) / total_selected
+                self.total_progress_text.value = f"总进度: {i + 1}/{total_selected}"
                 self.page.update()
 
-            if not self.is_paused:
-                self.page.snack_bar = ft.SnackBar(ft.Text(f"歌单 {playlist_name} 下载完成！"))
+            if not self.is_cancelled:
+                self.page.snack_bar = ft.SnackBar(ft.Text(f"下载完成！成功 {completed_count}/{total_selected} 首"))
                 self.page.snack_bar.open = True
                 self.download_button.disabled = False
+                self.select_all_button.disabled = False
+                self.deselect_all_button.disabled = False
                 self.pause_button.disabled = True
                 self.resume_button.disabled = True
                 self.cancel_button.disabled = True
                 self.page.update()
-                logging.info(f"歌单 {playlist_name} 下载完成")
+                logging.info(f"歌单 {playlist_name} 下载完成，成功 {completed_count}/{total_selected} 首")
 
         except Exception as e:
             self.page.snack_bar = ft.SnackBar(ft.Text(f"下载失败：{str(e)}"))
             self.page.snack_bar.open = True
             self.download_button.disabled = False
+            self.select_all_button.disabled = False
+            self.deselect_all_button.disabled = False
             self.pause_button.disabled = True
             self.resume_button.disabled = True
             self.cancel_button.disabled = True
@@ -387,17 +560,17 @@ class MusicDownloaderApp:
             url_data = url_v1(song_id, quality, cookies)
             if not url_data.get('data') or not url_data['data'][0].get('url'):
                 logging.warning(f"无法下载 {song_name}，可能是 VIP 限制或音质不可用")
-                return
+                raise Exception("VIP 限制或音质不可用")
 
             song_url = url_data['data'][0]['url']
-            file_extension = '.flac' if quality == 'lossless' else '.mp3'
+            file_extension = '.flac' if quality in ['lossless', 'hires', 'jymaster'] else '.mp3'
             file_path = os.path.join(download_dir, f"{song_name} - {artist_names}{file_extension}")
 
             if os.path.exists(file_path):
                 logging.info(f"{song_name} 已存在，跳过下载")
                 return
 
-            self.download_file(song_url, file_path)
+            self.download_file(song_url, file_path, track['id'])
 
             self.add_metadata(file_path, song_name, artist_names, album_name, cover_url, file_extension)
 
@@ -412,9 +585,9 @@ class MusicDownloaderApp:
 
         except Exception as e:
             logging.error(f"下载 {song_name} 失败：{str(e)}")
-            print(f"下载 {song_name} 失败：{str(e)}")
+            raise
 
-    def download_file(self, url, file_path):
+    def download_file(self, url, file_path, track_id):
         session = requests.Session()
         retries = requests.adapters.Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
         session.mount('http://', requests.adapters.HTTPAdapter(max_retries=retries))
@@ -429,12 +602,17 @@ class MusicDownloaderApp:
 
         with open(file_path, 'wb') as f:
             for chunk in response.iter_content(chunk_size=8192):
+                if self.is_cancelled:
+                    break
                 if chunk and not self.is_paused:
                     f.write(chunk)
                     self.downloaded_size += len(chunk)
                     if total_size > 0:
-                        self.file_progress.value = self.downloaded_size / total_size
-                        self.file_progress_text.value = f"文件进度: {int(self.file_progress.value * 100)}% ({self.current_song})"
+                        progress = self.downloaded_size / total_size
+                        self.file_progress.value = progress
+                        self.file_progress_text.value = f"文件进度: {int(progress * 100)}% ({self.current_song})"
+                        # 更新单曲进度
+                        self.update_track_progress(track_id, progress)
                     elapsed = time.time() - self.start_time
                     speed = self.downloaded_size / elapsed / 1024 if elapsed > 0 else 0
                     self.speed_text.value = f"下载速度: {speed:.2f} KB/s"
@@ -442,7 +620,8 @@ class MusicDownloaderApp:
                 elif self.is_paused:
                     time.sleep(0.1)
 
-        logging.info(f"成功下载文件：{file_path}")
+        if not self.is_cancelled:
+            logging.info(f"成功下载文件：{file_path}")
 
     def add_metadata(self, file_path, title, artist, album, cover_url, file_extension):
         try:
