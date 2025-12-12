@@ -98,7 +98,7 @@
 
 ```bash
 # 克隆项目
-git clone https://github.com/your-repo/DownList.git
+git clone https://github.com/741liufei/DownList.git
 cd DownList
 
 # 安装依赖
@@ -125,19 +125,28 @@ python main.py
 ```
 DownList/
 ├── main.py                 # 程序入口
-├── cookie.txt              # Cookie 文件
+├── requirements.txt        # 依赖列表
+├── cookie.txt              # Cookie 文件（登录后生成）
 ├── config.json             # 配置文件（自动生成）
-├── download.log            # 下载日志
+├── download.log            # 下载日志（运行时生成）
+├── assets/
+│   └── display.png         # 界面截图
 └── src/
+    ├── __init__.py         # 包初始化
     ├── api/
+    │   ├── __init__.py
     │   └── netease_api.py  # 网易云 API 封装
     ├── auth/
+    │   ├── __init__.py
     │   └── cookie_manager.py # Cookie 管理与浏览器登录
     ├── core/
+    │   ├── __init__.py
     │   └── downloader.py   # 下载核心逻辑
     ├── ui/
+    │   ├── __init__.py
     │   └── app.py          # Flet UI 界面
     └── utils/
+        ├── __init__.py
         └── helpers.py      # 工具函数
 ```
 
