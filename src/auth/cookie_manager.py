@@ -105,10 +105,14 @@ class CookieManager:
                         options.add_argument('--disable-gpu')
                     else:
                         options.add_argument('--start-maximized')
-                    
-                    options.add_argument('--disable-blink-features=AutomationControlled')
-                    options.add_experimental_option('excludeSwitches', ['enable-automation'])
-                    options.add_experimental_option('useAutomationExtension', False)
+                    if system == 'Darwin':
+                        options.add_argument('--disable-blink-features=AutomationControlled')
+                        options.add_experimental_option('excludeSwitches', ['enable-automation'])
+                        options.add_experimental_option('useAutomationExtension', False)
+                    else:
+                        # Windows 简化配置，优先保证能启动
+                        options.add_experimental_option("detach", True)
+                        options.add_argument('--start-maximized')
                     
                     driver = webdriver.Edge(options=options)
                     logging.info(f"✅ 成功启动 {browser_name}")
@@ -122,12 +126,14 @@ class CookieManager:
                         options.add_argument('--no-sandbox')
                         options.add_argument('--disable-dev-shm-usage')
                         options.add_argument('--disable-gpu')
+                    if system == 'Darwin':
+                        options.add_argument('--disable-blink-features=AutomationControlled')
+                        options.add_experimental_option('excludeSwitches', ['enable-automation'])
+                        options.add_experimental_option('useAutomationExtension', False)
                     else:
+                        # Windows 简化配置，优先保证能启动
+                        options.add_experimental_option("detach", True)
                         options.add_argument('--start-maximized')
-                    
-                    options.add_argument('--disable-blink-features=AutomationControlled')
-                    options.add_experimental_option('excludeSwitches', ['enable-automation'])
-                    options.add_experimental_option('useAutomationExtension', False)
                     
                     driver = webdriver.Chrome(options=options)
                     logging.info(f"✅ 成功启动 {browser_name}")
