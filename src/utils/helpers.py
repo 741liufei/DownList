@@ -32,10 +32,27 @@ def sanitize_filename(filename: str) -> str:
     Returns:
         清理后的文件名
     """
-    invalid_chars = '<>:"/\\|?*'
+    import platform
+    
+    # Windows 和 macOS/Linux 的非法字符略有不同
+    if platform.system() == 'Windows':
+        invalid_chars = '<>:"/\\|?*'
+    else:  # macOS 和 Linux
+        # macOS 和 Linux 主要限制 / 和 null 字符
+        # 但为了兼容性，我们也移除其他可能有问题的字符
+        invalid_chars = '/<>:"|?*\\'
+    
     for char in invalid_chars:
         filename = filename.replace(char, '')
-    return filename.strip()
+    
+    # 移除前后空格和点（避免隐藏文件）
+    filename = filename.strip().strip('.')
+    
+    # 如果文件名为空，使用默认名称
+    if not filename:
+        filename = 'untitled'
+    
+    return filename
 
 
 def generate_filename(song_name: str, artist: str, format_key: str, extension: str, 

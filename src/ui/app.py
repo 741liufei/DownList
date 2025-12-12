@@ -75,16 +75,34 @@ class MusicDownloaderApp:
     
     def _load_download_dir(self) -> str:
         """从配置文件加载下载目录"""
+        import platform
+        
+        # 根据操作系统设置默认下载目录
+        if platform.system() == 'Darwin':  # macOS
+            default_dir = os.path.expanduser('~/Music')
+        elif platform.system() == 'Windows':
+            default_dir = 'C:\\'
+        else:  # Linux
+            default_dir = os.path.expanduser('~/Music')
+        
         try:
             if os.path.exists(CONFIG_FILE):
                 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                     config = json.load(f)
-                    saved_dir = config.get('download_dir', 'C:\\')
+                    saved_dir = config.get('download_dir', default_dir)
                     if os.path.isdir(saved_dir):
                         return saved_dir
         except Exception as e:
             logging.warning(f"加载配置文件失败: {e}")
-        return "C:\\"
+        
+        # 确保默认目录存在
+        if not os.path.exists(default_dir):
+            try:
+                os.makedirs(default_dir, exist_ok=True)
+            except:
+                default_dir = os.path.expanduser('~')
+        
+        return default_dir
     
     def _save_download_dir(self):
         """保存下载目录到配置文件"""
@@ -224,17 +242,47 @@ class MusicDownloaderApp:
         
         def do_login():
             try:
+                logging.info("开始浏览器登录流程...")
                 success = self.cookie_manager.login_via_browser()
                 if success:
                     self.login_status.value = "登录状态: 登录成功"
                     self.login_status.color = ft.Colors.GREEN
                     self.login_button.text = "重新登录"
+                    self._show_snackbar("登录成功！Cookie 已保存")
+                    logging.info("登录成功")
                 else:
                     self.login_status.value = "登录状态: 登录失败或超时"
                     self.login_status.color = ft.Colors.RED
-            except Exception as ex:
-                self.login_status.value = f"登录状态: 错误 - {str(ex)}"
+                    self._show_snackbar("登录失败或超时，请重试")
+                    logging.warning("登录失败或超时")
+            except ImportError as ex:
+                error_msg = "缺少 selenium 库，请运行: pip3 install selenium"
+                self.login_status.value = f"登录状态: {error_msg}"
                 self.login_status.color = ft.Colors.RED
+                self._show_snackbar(error_msg)
+                logging.error(error_msg)
+            except Exception as ex:
+                error_msg = str(ex)
+                # 截断过长的错误信息
+                if len(error_msg) > 100:
+                    display_msg = error_msg[:100] + "..."
+                else:
+                    display_msg = error_msg
+                
+                self.login_status.value = f"登录状态: 错误"
+                self.login_status.color = ft.Colors.RED
+                self._show_snackbar(f"登录失败: {display_msg}")
+                logging.error(f"登录失败: {error_msg}")
+                
+                # 如果是 ChromeDriver 相关错误，提供帮助信息
+                if 'chromedriver' in error_msg.lower() or 'chrome' in error_msg.lower():
+                    import platform
+                    if platform.system() == 'Darwin':
+                        help_msg = "macOS 用户请确保已安装 Chrome 浏览器，并运行: pip3 install --upgrade selenium"
+                    else:
+                        help_msg = "请确保已安装 Chrome 浏览器，并运行: pip install --upgrade selenium"
+                    self._show_snackbar(help_msg)
+                    logging.info(help_msg)
             finally:
                 self.login_button.disabled = False
                 self.page.update()
@@ -299,29 +347,46 @@ class MusicDownloaderApp:
             return
         
         try:
-            cookies = self.cookie_manager.parse_cookie()
+            self.cookie_manager.read_cookie()
         except FileNotFoundError:
             self._show_snackbar("请先登录获取 Cookie")
             return
         
+        # 更新 UI 为加载状态
+        self.parse_button.text = "解析中..."
+        self.parse_button.disabled = True
+        self.url_input.disabled = True
+        self.page.update()
+        
+        threading.Thread(target=self._parse_playlist_thread, args=(url,), daemon=True).start()
+
+    def _parse_playlist_thread(self, url):
+        """后台解析歌单线程"""
         try:
+            cookies = self.cookie_manager.parse_cookie()
             playlist_id = extract_playlist_id(url)
+            
+            logging.info(f"开始解析歌单 ID: {playlist_id}")
+            
             playlist_info = playlist_detail(playlist_id, cookies)
             
             if playlist_info['status'] != 200:
                 self._show_snackbar(f"歌单解析失败：{playlist_info['msg']}")
                 logging.error(f"歌单解析失败：{playlist_info['msg']}")
+                self._reset_parse_button()
                 return
             
             self.original_tracks = playlist_info['playlist']['tracks']
             self._scan_downloaded()
+            
+            # 由于是在线程中，UI更新不需要 page.run_task，直接修改后调用 page.update 即可
+            # (Flet 的 page.update 是线程安全的)
             self._refresh_track_list()
             
             self.total_progress_text.value = f"总进度: 0/{len(self.selected_tracks)}"
             self.download_button.disabled = False
             self.select_all_button.disabled = False
             self.deselect_all_button.disabled = False
-            self.page.update()
             
             logging.info(f"成功解析歌单：{playlist_info['playlist']['name']}，共 {len(self.original_tracks)} 首歌曲")
             self._show_snackbar(f"成功解析歌单，共 {len(self.original_tracks)} 首歌曲")
@@ -329,6 +394,15 @@ class MusicDownloaderApp:
         except Exception as ex:
             self._show_snackbar(f"解析失败：{str(ex)}")
             logging.error(f"解析歌单失败：{str(ex)}")
+        finally:
+            self._reset_parse_button()
+    
+    def _reset_parse_button(self):
+        """重置解析按钮状态"""
+        self.parse_button.text = "解析歌单"
+        self.parse_button.disabled = False
+        self.url_input.disabled = False
+        self.page.update()
     
     def _build_track_list_ui(self):
         """构建歌曲列表 UI"""

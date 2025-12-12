@@ -86,15 +86,36 @@
 1. 一台正常的电脑，安装了 Python 3.8+
 2. 网易云音乐账号（建议用有黑胶VIP的，没有VIP会有歌曲下载不了）
 
+### 系统兼容性
+
+本项目支持以下操作系统：
+- ✅ Windows
+- ✅ macOS (已兼容)
+- ✅ Linux
+
+**macOS 用户注意事项：**
+- 默认下载目录为 `~/Music`
+- 首次运行浏览器登录时，可能需要在系统设置中授予 Chrome 权限
+- 如果遇到 ChromeDriver 问题，请确保已安装 Chrome 浏览器
+
 
 
 ## 下载安装
 
 ### 方式一：直接下载程序
 
+**Windows 用户：**
 到 Release 或 [蓝奏云（密码:g9dh）](https://wwbnp.lanzoum.com/iksOz3dfr06f) 中下载，解压后直接运行即可。
 
+**macOS 用户：**
+下载 `DownList-v2.1.1-macOS.dmg`，双击打开后将应用拖到「应用程序」文件夹。
+- 📦 DMG 大小：约 36 MB
+- 🎯 支持 Intel 和 Apple Silicon (M1/M2/M3)
+- 📖 详细说明请查看 [发布说明](RELEASE_NOTES.md)
+
 ### 方式二：源码运行
+
+**Windows 用户：**
 
 ```bash
 # 克隆项目
@@ -107,6 +128,22 @@ pip install -r requirements.txt
 # 运行程序
 python main.py
 ```
+
+**macOS/Linux 用户：**
+
+```bash
+# 克隆项目
+git clone https://github.com/741liufei/DownList.git
+cd DownList
+
+# 安装依赖
+pip3 install -r requirements.txt
+
+# 运行程序
+python3 main.py
+```
+
+> 📖 macOS 用户请查看 [macOS 安装指南](MACOS_SETUP.md) 获取详细说明
 
 ## 使用方法
 
@@ -266,6 +303,14 @@ DownList/
 - [ ] 实现多线程下载
 
 
+
+## 更新日志
+
+查看 [CHANGELOG.md](CHANGELOG.md) 了解详细的版本更新历史。
+
+最新版本 **v2.1.1** 已完全支持 macOS 系统！
+
+---
 
 ## 备注
 
