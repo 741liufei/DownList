@@ -50,6 +50,26 @@ class CookieManager:
         cookie_items = [item.strip().split('=', 1) for item in cookie_text.split(';') if item]
         return {k.strip(): v.strip() for k, v in cookie_items}
     
+    def is_logged_in(self) -> bool:
+        """
+        检查用户是否已登录
+        
+        通过检查 Cookie 文件中是否存在 MUSIC_U 来判断
+        MUSIC_U 是网易云音乐登录成功后的关键 Cookie
+        
+        Returns:
+            是否已登录
+        """
+        if not self.cookie_exists():
+            return False
+        
+        try:
+            cookies = self.parse_cookie()
+            # MUSIC_U 是登录成功后的关键 Cookie
+            return 'MUSIC_U' in cookies and cookies['MUSIC_U']
+        except Exception:
+            return False
+    
     def save_cookie(self, cookies: dict) -> None:
         """
         保存 Cookie 到文件

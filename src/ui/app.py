@@ -66,6 +66,7 @@ class MusicDownloaderApp:
         self.downloaded_files = set()
         self.download_thread = None
         self.current_playlist_name = "Unknown Playlist"  # 当前歌单名称
+        self._is_logged_in = False  # 登录状态标记
 
         # 选择相关
         self.selected_tracks = set()
@@ -232,6 +233,7 @@ class MusicDownloaderApp:
         if self.cookie_manager.cookie_exists():
             try:
                 self.cookie_manager.parse_cookie()
+                self._is_logged_in = True
                 self.login_status.value = "登录状态: 已登录 (Cookie 有效)"
                 self.login_status.color = ft.Colors.GREEN
                 self.login_button.visible = True
@@ -244,6 +246,7 @@ class MusicDownloaderApp:
     
     def _show_login_required(self):
         """显示需要登录"""
+        self._is_logged_in = False
         self.login_status.value = "登录状态: 未登录"
         self.login_status.color = ft.Colors.RED
         self.login_button.visible = True
@@ -261,6 +264,7 @@ class MusicDownloaderApp:
                 logging.info("开始浏览器登录流程...")
                 success = self.cookie_manager.login_via_browser()
                 if success:
+                    self._is_logged_in = True
                     self.login_status.value = "登录状态: 登录成功"
                     self.login_status.color = ft.Colors.GREEN
                     self.login_button.text = "重新登录"
@@ -358,14 +362,30 @@ class MusicDownloaderApp:
     def parse_playlist(self, e):
         """解析歌单"""
         url = self.url_input.value.strip()
+        logging.info(f"parse_playlist 被调用, URL: {url}, _is_logged_in: {self._is_logged_in}")
         if not url:
             self._show_snackbar("请输入歌单 URL")
             return
         
-        try:
-            self.cookie_manager.read_cookie()
-        except FileNotFoundError:
-            self._show_snackbar("请先登录获取 Cookie")
+        # 检查用户是否已登录
+        if not self._is_logged_in:
+            logging.info("用户未登录，显示提示")
+            # 弹出对话框提示用户登录
+            def close_dialog(e):
+                dialog.open = False
+                self.page.update()
+            
+            dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("提示"),
+                content=ft.Text("请先登录网易云音乐"),
+                actions=[
+                    ft.TextButton("确定", on_click=close_dialog),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            self.page.open(dialog)
+            self.page.update()
             return
         
         # 更新 UI 为加载状态
@@ -780,6 +800,6 @@ class MusicDownloaderApp:
     
     def _show_snackbar(self, message: str):
         """显示提示消息"""
-        self.page.snack_bar = ft.SnackBar(ft.Text(message))
-        self.page.snack_bar.open = True
+        snackbar = ft.SnackBar(content=ft.Text(message))
+        self.page.open(snackbar)
         self.page.update()
