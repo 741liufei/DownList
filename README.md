@@ -157,7 +157,6 @@ pip3 install -r requirements.txt
 python3 main.py
 ```
 
-> 📖 macOS 用户请查看 [macOS 安装指南](MACOS_SETUP.md) 获取详细说明
 
 ## 使用方法
 
