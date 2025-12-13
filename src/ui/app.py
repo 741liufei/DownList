@@ -47,7 +47,7 @@ class MusicDownloaderApp:
         """
         self.page = page
         self.page.title = "网易云音乐下载器 v2.1"
-        self.page.window.width = 950
+        self.page.window.width = 1200
         self.page.window.height = 750
         
         # 核心组件
@@ -122,7 +122,7 @@ class MusicDownloaderApp:
     def _init_ui(self):
         """初始化 UI 组件"""
         # 顶部输入区域
-        self.url_input = ft.TextField(label="歌单 URL", width=500)
+        self.url_input = ft.TextField(label="歌单 URL", width=700)
         self.parse_button = ft.ElevatedButton("解析歌单", on_click=self.parse_playlist)
         
         # 设置区域
@@ -171,12 +171,12 @@ class MusicDownloaderApp:
         
         # 进度显示
         self.total_progress = ft.ProgressBar(
-            width=850, value=0, color=ft.Colors.INDIGO,
+            width=1100, value=0, color=ft.Colors.INDIGO,
             bgcolor=ft.Colors.GREY_300, bar_height=20
         )
         self.total_progress_text = ft.Text("总进度: 0/0")
         self.file_progress = ft.ProgressBar(
-            width=850, value=0, color=ft.Colors.BLUE,
+            width=1100, value=0, color=ft.Colors.BLUE,
             bgcolor=ft.Colors.GREY_300, bar_height=15
         )
         self.file_progress_text = ft.Text("文件进度: 0%")
@@ -464,8 +464,8 @@ class MusicDownloaderApp:
                     ft.Text(f"{index + 1}.", size=12, width=30),
                     ft.Image(src=track['picUrl'], width=45, height=45, fit=ft.ImageFit.COVER, border_radius=5) if track.get('picUrl') else ft.Container(width=45, height=45, bgcolor=ft.Colors.GREY_300),
                     ft.Column([
-                        ft.Text(display_name, size=13, weight=ft.FontWeight.W_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, width=320),
-                        ft.Text(f"{track_artist} · {track['album']}", size=11, color=ft.Colors.GREY_600, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, width=320),
+                        ft.Text(display_name, size=13, weight=ft.FontWeight.W_500, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, width=550),
+                        ft.Text(f"{track_artist} · {track['album']}", size=11, color=ft.Colors.GREY_600, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, width=550),
                     ], spacing=2, expand=True),
                     ft.Column([
                         status_text,
