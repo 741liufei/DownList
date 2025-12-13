@@ -59,8 +59,11 @@ class MusicDownloaderApp:
         self.downloader.on_progress = self._on_download_progress
         self.downloader.on_track_progress = self._on_track_progress
         
+        # 加载配置
+        self.config = self._load_config()
+        
         # 状态
-        self.download_dir = self._load_download_dir()
+        self.download_dir = self.config.get('download_dir', self._get_default_download_dir())
         self.tracks = []
         self.original_tracks = []  # 保存原始顺序
         self.downloaded_files = set()
@@ -72,31 +75,21 @@ class MusicDownloaderApp:
         self.selected_tracks = set()
         self.track_controls = {}
         
-        # 初始化 UI
+        # 初始化 UI 并应用配置
         self._init_ui()
+        self._apply_config()
         self._check_login_status()
     
-    def _load_download_dir(self) -> str:
-        """从配置文件加载下载目录"""
+    def _get_default_download_dir(self) -> str:
+        """获取默认下载目录"""
         import platform
         
-        # 根据操作系统设置默认下载目录
         if platform.system() == 'Darwin':  # macOS
             default_dir = os.path.expanduser('~/Music')
         elif platform.system() == 'Windows':
             default_dir = 'C:\\'
         else:  # Linux
             default_dir = os.path.expanduser('~/Music')
-        
-        try:
-            if os.path.exists(CONFIG_FILE):
-                with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                    config = json.load(f)
-                    saved_dir = config.get('download_dir', default_dir)
-                    if os.path.isdir(saved_dir):
-                        return saved_dir
-        except Exception as e:
-            logging.warning(f"加载配置文件失败: {e}")
         
         # 确保默认目录存在
         if not os.path.exists(default_dir):
@@ -107,19 +100,54 @@ class MusicDownloaderApp:
         
         return default_dir
     
-    def _save_download_dir(self):
-        """保存下载目录到配置文件"""
+    def _load_config(self) -> dict:
+        """从配置文件加载所有配置"""
         try:
-            config = {}
             if os.path.exists(CONFIG_FILE):
                 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                     config = json.load(f)
-            config['download_dir'] = self.download_dir
+                    logging.info(f"已加载配置: {config}")
+                    return config
+        except Exception as e:
+            logging.warning(f"加载配置文件失败: {e}")
+        return {}
+    
+    def _save_config(self):
+        """保存所有配置到配置文件"""
+        try:
+            config = {
+                'download_dir': self.download_dir,
+                'quality': self.quality_dropdown.value,
+                'naming': self.naming_dropdown.value,
+                'sort': self.sort_dropdown.value,
+                'concurrent': self.concurrent_dropdown.value,
+                'lyrics': self.lyrics_checkbox.value,
+                'group_by_album': self.group_by_album.value,
+                'use_playlist_folder': self.use_playlist_folder.value,
+            }
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
-            logging.info(f"已保存下载目录: {self.download_dir}")
+            logging.info(f"已保存配置: {config}")
         except Exception as e:
             logging.error(f"保存配置文件失败: {e}")
+    
+    def _apply_config(self):
+        """应用加载的配置到 UI 组件"""
+        if self.config.get('quality') and self.config['quality'] in QUALITY_MAP:
+            self.quality_dropdown.value = self.config['quality']
+        if self.config.get('naming') and self.config['naming'] in NAMING_FORMAT_DISPLAY:
+            self.naming_dropdown.value = self.config['naming']
+        if self.config.get('sort') and self.config['sort'] in SORT_OPTIONS:
+            self.sort_dropdown.value = self.config['sort']
+        if self.config.get('concurrent'):
+            self.concurrent_dropdown.value = self.config['concurrent']
+        if 'lyrics' in self.config:
+            self.lyrics_checkbox.value = self.config['lyrics']
+        if 'group_by_album' in self.config:
+            self.group_by_album.value = self.config['group_by_album']
+        if 'use_playlist_folder' in self.config:
+            self.use_playlist_folder.value = self.config['use_playlist_folder']
+        self.page.update()
     
     def _init_ui(self):
         """初始化 UI 组件"""
@@ -132,14 +160,16 @@ class MusicDownloaderApp:
             label="音质选择",
             options=[ft.dropdown.Option(text=QUALITY_MAP[q], key=q) for q in QUALITY_MAP.keys()],
             value="standard",
-            width=200
+            width=200,
+            on_change=self._on_config_change
         )
         
         self.naming_dropdown = ft.Dropdown(
             label="命名格式",
             options=[ft.dropdown.Option(text=v, key=k) for k, v in NAMING_FORMAT_DISPLAY.items()],
             value="default",
-            width=230
+            width=230,
+            on_change=self._on_config_change
         )
         
         self.sort_dropdown = ft.Dropdown(
@@ -150,16 +180,17 @@ class MusicDownloaderApp:
             on_change=self._on_sort_change
         )
         
-        self.lyrics_checkbox = ft.Checkbox(label="下载歌词", value=False)
-        self.group_by_album = ft.Checkbox(label="按专辑分组", value=False)
-        self.use_playlist_folder = ft.Checkbox(label="创建歌单文件夹", value=True)
+        self.lyrics_checkbox = ft.Checkbox(label="下载歌词", value=False, on_change=self._on_config_change)
+        self.group_by_album = ft.Checkbox(label="按专辑分组", value=False, on_change=self._on_config_change)
+        self.use_playlist_folder = ft.Checkbox(label="创建歌单文件夹", value=True, on_change=self._on_config_change)
         
         # 并发下载配置
         self.concurrent_dropdown = ft.Dropdown(
             label="并发数",
             options=[ft.dropdown.Option(text=str(i), key=str(i)) for i in range(1, 6)],
             value=str(MAX_WORKERS),
-            width=80
+            width=80,
+            on_change=self._on_config_change
         )
         
         self.dir_button = ft.ElevatedButton("选择下载目录", on_click=self.select_directory)
@@ -322,7 +353,7 @@ class MusicDownloaderApp:
             self.download_dir = e.path
             self.dir_text.value = f"下载目录: {self.download_dir}"
             # 保存配置
-            self._save_download_dir()
+            self._save_config()
             # 重新扫描已下载文件
             self._scan_downloaded()
             self._refresh_track_list()
@@ -332,8 +363,13 @@ class MusicDownloaderApp:
         """扫描已下载文件"""
         self.downloaded_files = scan_downloaded_files(self.download_dir)
     
+    def _on_config_change(self, e):
+        """处理配置变更"""
+        self._save_config()
+    
     def _on_sort_change(self, e):
         """处理排序方式变化"""
+        self._save_config()
         self._refresh_track_list()
     
     def _refresh_track_list(self):
@@ -556,8 +592,12 @@ class MusicDownloaderApp:
     
     def _on_download_progress(self, progress, speed, song_name):
         """下载进度回调"""
+        # 限制进度在 0-1 范围内
+        progress = max(0, min(1, progress))
         self.file_progress.value = progress
-        self.file_progress_text.value = f"文件进度: {int(progress * 100)}% ({song_name})"
+        # 处理 song_name 为 None 的情况
+        display_name = song_name if song_name else "正在下载"
+        self.file_progress_text.value = f"文件进度: {int(progress * 100)}% ({display_name})"
         self.speed_text.value = f"下载速度: {speed:.2f} KB/s"
         self.page.update()
     
@@ -741,7 +781,7 @@ class MusicDownloaderApp:
             return
         
         logging.info(f"开始下载: {song_name} -> {file_path}")
-        success = self.downloader.download_file(song_url, file_path, track['id'])
+        success = self.downloader.download_file(song_url, file_path, track['id'], song_name=track['name'])
         if not success:
             logging.error(f"下载失败: {song_name}")
             raise Exception("下载失败")

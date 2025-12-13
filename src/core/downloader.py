@@ -124,7 +124,7 @@ class Downloader:
         self.is_paused = False
         logging.info("下载已取消")
     
-    def download_file(self, url: str, file_path: str, track_id: int = None) -> bool:
+    def download_file(self, url: str, file_path: str, track_id: int = None, song_name: str = None) -> bool:
         """
         下载文件（高性能版本）
         
@@ -132,6 +132,7 @@ class Downloader:
             url: 文件下载链接
             file_path: 保存路径
             track_id: 歌曲 ID（用于进度回调）
+            song_name: 歌曲名（用于进度显示）
             
         Returns:
             是否下载成功
@@ -150,6 +151,8 @@ class Downloader:
         self.total_size = total_size
         self.downloaded_size = 0
         self.start_time = time.time()
+        # 设置当前歌曲名（用于进度显示）
+        current_song_name = song_name
         
         try:
             with open(file_path, 'wb') as f:
@@ -169,13 +172,13 @@ class Downloader:
                         self.downloaded_size += len(chunk)
                         
                         if total_size > 0:
-                            progress = self.downloaded_size / total_size
+                            progress = min(1.0, self.downloaded_size / total_size)
                             elapsed = time.time() - self.start_time
                             speed = self.downloaded_size / elapsed / 1024 if elapsed > 0 else 0
                             
                             # 调用进度回调
                             if self.on_progress:
-                                self.on_progress(progress, speed, self.current_song)
+                                self.on_progress(progress, speed, current_song_name)
                             if self.on_track_progress and track_id:
                                 self.on_track_progress(track_id, progress)
             

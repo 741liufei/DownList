@@ -1,3 +1,10 @@
 {
-  "download_dir": "D:\\音乐下载"
+  "download_dir": "D:\\音乐下载",
+  "quality": "jyeffect",
+  "naming": "artist_first_quality",
+  "sort": "default",
+  "concurrent": "3",
+  "lyrics": true,
+  "group_by_album": false,
+  "use_playlist_folder": true
 }
