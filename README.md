@@ -125,7 +125,7 @@
 ### 方式一：直接下载程序
 
 **Windows 用户：**
-到 Release 或 [蓝奏云（密码:g9dh）](https://wwbnp.lanzoum.com/iksOz3dfr06f) 中下载，解压后直接运行即可。
+到 Release 或 [蓝奏云（密码:39vn）](https://wwbnp.lanzoum.com/ij9Mr3dicjta) 中下载，解压后直接运行即可。
 
 ### 方式二：源码运行
 
