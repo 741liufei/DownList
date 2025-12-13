@@ -6,12 +6,13 @@ import os
 import threading
 import logging
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.api.netease_api import (
     QUALITY_MAP, url_v1, name_v1, lyric_v1, playlist_detail
 )
 from src.auth.cookie_manager import CookieManager
-from src.core.downloader import Downloader
+from src.core.downloader import Downloader, MAX_WORKERS
 from src.utils.helpers import (
     NAMING_FORMAT_DISPLAY, sanitize_filename, generate_filename,
     scan_downloaded_files, is_song_downloaded, sort_tracks_by_pinyin,
@@ -46,7 +47,7 @@ class MusicDownloaderApp:
             page: Flet 页面对象
         """
         self.page = page
-        self.page.title = "网易云音乐下载器 v2.1"
+        self.page.title = "网易云音乐下载器 v2.2"
         self.page.window.width = 1200
         self.page.window.height = 750
         
@@ -151,6 +152,15 @@ class MusicDownloaderApp:
         self.lyrics_checkbox = ft.Checkbox(label="下载歌词", value=False)
         self.group_by_album = ft.Checkbox(label="按专辑分组", value=False)
         self.use_playlist_folder = ft.Checkbox(label="创建歌单文件夹", value=True)
+        
+        # 并发下载配置
+        self.concurrent_dropdown = ft.Dropdown(
+            label="并发数",
+            options=[ft.dropdown.Option(text=str(i), key=str(i)) for i in range(1, 6)],
+            value=str(MAX_WORKERS),
+            width=80
+        )
+        
         self.dir_button = ft.ElevatedButton("选择下载目录", on_click=self.select_directory)
         self.dir_text = ft.Text(f"下载目录: {self.download_dir}", size=12)
         
@@ -192,6 +202,7 @@ class MusicDownloaderApp:
                 self.quality_dropdown, 
                 self.naming_dropdown,
                 self.sort_dropdown,
+                self.concurrent_dropdown,
                 self.lyrics_checkbox, 
                 self.group_by_album,
                 self.use_playlist_folder,
@@ -564,16 +575,17 @@ class MusicDownloaderApp:
         self.cancel_button.disabled = False
         self.downloader.reset()
         
+        concurrent_count = int(self.concurrent_dropdown.value)
         self.download_thread = threading.Thread(
             target=self._download_playlist_thread,
             args=(self.quality_dropdown.value, self.lyrics_checkbox.value, 
-                  self.group_by_album.value, self.use_playlist_folder.value),
+                  self.group_by_album.value, self.use_playlist_folder.value, concurrent_count),
             daemon=True
         )
         self.download_thread.start()
     
-    def _download_playlist_thread(self, quality, download_lyrics, group_by_album, use_playlist_folder):
-        """下载歌单线程"""
+    def _download_playlist_thread(self, quality, download_lyrics, group_by_album, use_playlist_folder, concurrent_count=3):
+        """下载歌单线程（支持并行下载）"""
         cookies = self.cookie_manager.parse_cookie()
         naming_format = self.naming_dropdown.value
         
@@ -602,26 +614,46 @@ class MusicDownloaderApp:
             total_selected = len(selected_tracks)
             
             self.total_progress.value = 0
-            self.total_progress_text.value = f"总进度: 0/{total_selected}"
+            self.total_progress_text.value = f"总进度: 0/{total_selected} (并发: {concurrent_count})"
             self.page.update()
             
             completed_count = 0
-            for i, track in enumerate(selected_tracks):
+            failed_count = 0
+            _progress_lock = threading.Lock()
+            
+            def download_single_track(track_info):
+                """单曲下载任务（供线程池使用）"""
+                nonlocal completed_count, failed_count
+                track, target_dir = track_info
+                
                 if self.downloader.is_cancelled:
-                    break
+                    return False
                 
                 while self.downloader.is_paused and not self.downloader.is_cancelled:
                     import time
                     time.sleep(0.1)
                 
                 if self.downloader.is_cancelled:
-                    break
-                
-                self.downloader.current_song = track['name']
-                self.downloader.current_track_id = track['id']
+                    return False
                 
                 self._update_track_status(track['id'], '下载中', 0, ft.Colors.BLUE)
                 
+                try:
+                    self._download_song(track, quality, download_lyrics, target_dir, cookies, naming_format)
+                    with _progress_lock:
+                        completed_count += 1
+                    self._update_track_status(track['id'], '已完成', 1.0, ft.Colors.GREEN)
+                    return True
+                except Exception as ex:
+                    with _progress_lock:
+                        failed_count += 1
+                    self._update_track_status(track['id'], '失败', 0, ft.Colors.RED)
+                    logging.error(f"下载失败: {track['name']} - {str(ex)}")
+                    return False
+            
+            # 准备下载任务列表
+            download_tasks = []
+            for track in selected_tracks:
                 # 确定单曲下载目录（处理按专辑分组）
                 if group_by_album:
                     album_name = sanitize_filename(track['album'])
@@ -631,23 +663,27 @@ class MusicDownloaderApp:
                     os.makedirs(target_dir, exist_ok=True)
                 else:
                     target_dir = base_download_dir
-
-                try:
-                    self._download_song(track, quality, download_lyrics, target_dir, cookies, naming_format)
-                    completed_count += 1
-                    self._update_track_status(track['id'], '已完成', 1.0, ft.Colors.GREEN)
-                except Exception as ex:
-                    self._update_track_status(track['id'], '失败', 0, ft.Colors.RED)
-                    logging.error(f"下载失败: {track['name']} - {str(ex)}")
+                download_tasks.append((track, target_dir))
+            
+            # 使用线程池并行下载
+            with ThreadPoolExecutor(max_workers=concurrent_count) as executor:
+                futures = {executor.submit(download_single_track, task): task for task in download_tasks}
                 
-                self.total_progress.value = (i + 1) / total_selected
-                self.total_progress_text.value = f"总进度: {i + 1}/{total_selected}"
-                self.page.update()
+                processed = 0
+                for future in as_completed(futures):
+                    if self.downloader.is_cancelled:
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        break
+                    
+                    processed += 1
+                    self.total_progress.value = processed / total_selected
+                    self.total_progress_text.value = f"总进度: {processed}/{total_selected} (成功: {completed_count})"
+                    self.page.update()
             
             if not self.downloader.is_cancelled:
                 self._show_snackbar(f"下载完成！成功 {completed_count}/{total_selected} 首")
                 self._reset_download_buttons()
-                logging.info(f"下载完成，成功 {completed_count}/{total_selected} 首")
+                logging.info(f"下载完成，成功 {completed_count}/{total_selected} 首，失败 {failed_count} 首")
         
         except Exception as e:
             self._show_snackbar(f"下载失败：{str(e)}")
