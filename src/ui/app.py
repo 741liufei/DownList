@@ -87,7 +87,8 @@ class MusicDownloaderApp:
         if platform.system() == 'Darwin':  # macOS
             default_dir = os.path.expanduser('~/Music')
         elif platform.system() == 'Windows':
-            default_dir = 'C:\\'
+            # 使用 Windows 用户的 Music 文件夹，避免扫描整个 C 盘
+            default_dir = os.path.join(os.path.expanduser('~'), 'Music')
         else:  # Linux
             default_dir = os.path.expanduser('~/Music')
         
@@ -452,15 +453,19 @@ class MusicDownloaderApp:
             self.current_playlist_name = playlist_info['playlist']['name']
             self._scan_downloaded()
             
-            # 由于是在线程中，UI更新不需要 page.run_task，直接修改后调用 page.update 即可
-            # (Flet 的 page.update 是线程安全的)
+            logging.info(f"准备刷新 UI，original_tracks 数量: {len(self.original_tracks)}")
+            
+            # 刷新歌曲列表 UI
             self._refresh_track_list()
+            
+            logging.info(f"UI 刷新完成，tracks 数量: {len(self.tracks)}, selected_tracks 数量: {len(self.selected_tracks)}")
             
             self.total_progress_text.value = f"总进度: 0/{len(self.selected_tracks)}"
             self.download_button.disabled = False
             self.select_all_button.disabled = False
             self.deselect_all_button.disabled = False
-            
+            self.page.update()  # 确保 UI 状态更新生效
+
             logging.info(f"成功解析歌单：{playlist_info['playlist']['name']}，共 {len(self.original_tracks)} 首歌曲")
             self._show_snackbar(f"成功解析歌单，共 {len(self.original_tracks)} 首歌曲")
             

@@ -103,13 +103,28 @@ def scan_downloaded_files(directory: str) -> Set[str]:
     if not os.path.exists(directory):
         return downloaded
     
+    # 检查是否为根目录（如 C:\、D:\ 等），避免扫描整个硬盘
+    # 根目录路径长度通常很短（如 C:\ 是 3 个字符）
+    is_root = len(directory) <= 3 or directory in ['/', '//', '\\', '\\\\']
+    
     extensions = {'.mp3', '.flac'}
-    # 递归扫描所有子目录
-    for root, dirs, files in os.walk(directory):
-        for filename in files:
-            name, ext = os.path.splitext(filename)
-            if ext.lower() in extensions:
-                downloaded.add(name.lower())
+    
+    if is_root:
+        # 根目录只扫描当前目录，不递归
+        try:
+            for filename in os.listdir(directory):
+                name, ext = os.path.splitext(filename)
+                if ext.lower() in extensions:
+                    downloaded.add(name.lower())
+        except PermissionError:
+            pass
+    else:
+        # 递归扫描所有子目录
+        for root, dirs, files in os.walk(directory):
+            for filename in files:
+                name, ext = os.path.splitext(filename)
+                if ext.lower() in extensions:
+                    downloaded.add(name.lower())
     
     return downloaded
 

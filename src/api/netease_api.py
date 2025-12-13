@@ -143,12 +143,16 @@ def playlist_detail(playlist_id: str, cookies: dict) -> dict:
     data = {'id': playlist_id}
     headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://music.163.com/'}
     try:
-        response = requests.post(url, data=data, headers=headers, cookies=cookies, timeout=10)
+        logging.info(f"正在请求歌单详情 API: {url}, playlist_id={playlist_id}")
+        response = requests.post(url, data=data, headers=headers, cookies=cookies, timeout=15)
         response.raise_for_status()
+        logging.info(f"歌单详情 API 响应状态码: {response.status_code}")
         result = response.json()
         if result.get('code') != 200:
+            logging.error(f"歌单 API 返回错误码: {result.get('code')}")
             return {'status': result.get('code'), 'msg': '歌单解析失败'}
         playlist = result.get('playlist', {})
+        logging.info(f"成功获取歌单: {playlist.get('name')}")
         info = {
             'status': 200,
             'playlist': {
@@ -158,13 +162,24 @@ def playlist_detail(playlist_id: str, cookies: dict) -> dict:
             }
         }
         track_ids = [str(t['id']) for t in playlist.get('trackIds', [])]
+        total_tracks = len(track_ids)
+        logging.info(f"歌单共有 {total_tracks} 首歌曲，开始批量获取歌曲详情")
+        
         for i in range(0, len(track_ids), 100):
+            batch_num = i // 100 + 1
+            total_batches = (len(track_ids) + 99) // 100
             batch_ids = track_ids[i:i+100]
+            logging.info(f"正在获取第 {batch_num}/{total_batches} 批歌曲详情 ({len(batch_ids)} 首)")
+            
             song_data = {'c': json.dumps([{'id': int(sid), 'v': 0} for sid in batch_ids])}
             song_resp = requests.post('https://interface3.music.163.com/api/v3/song/detail', 
-                                    data=song_data, headers=headers, cookies=cookies, timeout=10)
+                                    data=song_data, headers=headers, cookies=cookies, timeout=15)
+            song_resp.raise_for_status()
             song_result = song_resp.json()
-            for song in song_result.get('songs', []):
+            songs_in_batch = song_result.get('songs', [])
+            logging.info(f"第 {batch_num} 批获取成功，包含 {len(songs_in_batch)} 首歌曲")
+            
+            for song in songs_in_batch:
                 info['playlist']['tracks'].append({
                     'id': song['id'],
                     'name': song['name'],
@@ -172,6 +187,8 @@ def playlist_detail(playlist_id: str, cookies: dict) -> dict:
                     'album': song['al']['name'],
                     'picUrl': song['al'].get('picUrl', '')
                 })
+        
+        logging.info(f"歌单解析完成，共获取 {len(info['playlist']['tracks'])} 首歌曲")
         return info
     except requests.RequestException as e:
         logging.error(f"歌单解析失败：{playlist_id}，错误：{str(e)}")
